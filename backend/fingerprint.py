@@ -18,7 +18,7 @@ import time
 from gi.repository import Gio, GLib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from model import DEFAULTS, FINGERS, USB_ID, ScanState, detect_sensor, pam_status, validate_settings
+from model import DEFAULTS, FINGERS, ScanState, pam_status, validate_settings
 
 BUS = "net.reactivated.Fprint"
 DEVICE = BUS + ".Device"
@@ -83,17 +83,15 @@ class Client:
         return self.call("GetAll", "(s)", (DEVICE,), path, "org.freedesktop.DBus.Properties")[0]
 
     def discover(self):
-        hardware = detect_sensor()
-        if not hardware:
-            raise RuntimeError(f"No Goodix {USB_ID} reader is connected. This plugin is for the ThinkPad X1 reader.")
-        if len(hardware) != 1:
-            raise RuntimeError("Multiple supported readers found. Connect only one to manage enrollments.")
+        # fprintd owns hardware support, including USB and SPI readers.
+        self.path = None
         paths = self.call("GetDevices", path="/net/reactivated/Fprint/Manager", interface=BUS + ".Manager")[0]
-        matches = [(p, self.properties(p)) for p in paths]
-        matches = [(p, props) for p, props in matches if props.get("name") == "Goodix MOC Fingerprint Sensor"]
-        if len(matches) != 1:
-            raise RuntimeError("The Goodix USB reader is present, but fprintd did not expose one unambiguous Goodix MOC device.")
-        self.path, props = matches[0]
+        if not paths:
+            raise RuntimeError("No reader is exposed by fprintd. Check that your sensor is enabled and supported by the installed libfprint driver.")
+        if len(paths) != 1:
+            raise RuntimeError("Multiple fingerprint readers are exposed by fprintd. Connect only one to manage enrollments.")
+        props = self.properties(paths[0])
+        self.path = paths[0]
         return props
 
     def fingers(self):
@@ -129,20 +127,20 @@ class Client:
 def snapshot(client):
     # Read-only: never claim the reader just to paint a status panel.
     result = {"type": "snapshot", "user": pwd.getpwuid(os.getuid()).pw_name,
-              "usbId": USB_ID, "present": False, "fingers": [], "settings": load_settings(),
+              "present": False, "fingers": [], "settings": load_settings(),
               "auth": {key: pam_status(path) for key, path in {
                   "sudo": "/etc/pam.d/sudo", "polkit": "/etc/pam.d/polkit-1",
                   "lock": "/etc/pam.d/omarchy-lock-fingerprint"}.items()}}
     try:
         props = client.discover()
-        result.update(present=True, name=props["name"], scanType=props.get("scan-type", "press"),
+        result.update(present=True, name=props.get("name", "Fingerprint reader"), scanType=props.get("scan-type", "unknown"),
                       fingers=client.fingers())
     except (GLib.Error, RuntimeError) as error:
         result["error"], result["errorCode"] = friendly_error(error)
     try:
         result["model"] = Path("/sys/class/dmi/id/product_version").read_text().strip()
     except OSError:
-        result["model"] = "ThinkPad X1"
+        result["model"] = "This computer"
     packages = subprocess.run(["pacman", "-Q", "fprintd", "libfprint-git", "libfprint"],
                               capture_output=True, text=True, timeout=5)
     result["packages"] = list(dict.fromkeys(packages.stdout.strip().splitlines()))
@@ -152,7 +150,8 @@ def snapshot(client):
 def run_operation(client, action, finger, timeout, emit_event=emit):
     if finger not in FINGERS:
         raise ValueError("Choose a specific finger")
-    client.discover()
+    props = client.discover()
+    scan_type = props.get("scan-type", "unknown")
     enrolled = client.fingers()
     if action == "enroll" and finger in enrolled:
         raise ValueError("This finger is already enrolled. Remove it explicitly before enrolling again.")
@@ -181,7 +180,7 @@ def run_operation(client, action, finger, timeout, emit_event=emit):
             emit_event({"type": "result", "success": True, "code": "deleted", "message": "Fingerprint removed"})
             return True
         stages = client.properties().get("num-enroll-stages", 0)
-        state = ScanState(action, stages)
+        state = ScanState(action, stages, scan_type)
 
         def on_signal(conn, sender, path, iface, name, params):
             nonlocal finished, success
@@ -209,7 +208,7 @@ def run_operation(client, action, finger, timeout, emit_event=emit):
             return False
         started = time.monotonic()
         emit_event({"type": "phase", "code": "scanning", "stages": max(0, stages),
-                    "message": "Touch the sensor with your " + finger.replace("-finger", " finger").replace("-", " ") + "."})
+                    "message": ("Swipe your " if scan_type == "swipe" else "Scan your ") + finger.replace("-finger", " finger").replace("-", " ") + (" across the sensor." if scan_type == "swipe" else " on the sensor.")})
 
         def expired():
             nonlocal finished

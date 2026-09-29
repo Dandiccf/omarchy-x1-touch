@@ -132,7 +132,7 @@ Item {
                             Layout.maximumWidth: Style.space(246)
                             Layout.fillHeight: true
                             spacing: Style.space(10)
-                            TouchText { text: "GOODIX / MATCH ON CHIP"; color: root.faint; font.pixelSize: Style.font.caption; font.letterSpacing: 1 }
+                            TouchText { text: "FINGERPRINT / FPRINTD"; color: root.faint; font.pixelSize: Style.font.caption; font.letterSpacing: 1 }
                             PrintVisual {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.preferredWidth: Style.space(218)
@@ -142,10 +142,11 @@ Item {
                                 success: controller.result === "success"
                                 failed: controller.result === "error"
                             }
-                            TouchText { text: controller.busy ? "Listening to your touch" : "One touch. Your machine."; font.bold: true; font.pixelSize: Style.font.body }
+                            TouchText { text: controller.busy ? "Listening to the reader" : "Your print. Your machine."; font.bold: true; font.pixelSize: Style.font.body }
                             TouchText {
                                 Layout.fillWidth: true
-                                text: "ThinkPad X1  ·  27c6:659c\n" + controller.snapshot.fingers.length + " of 10 fingers enrolled"
+                                wrapMode: Text.WordWrap
+                                text: (controller.snapshot.name || "No reader detected") + "\n" + controller.snapshot.fingers.length + " of 10 fingers enrolled"
                                 color: root.faint
                                 font.pixelSize: Style.font.caption
                                 lineHeight: 1.5
@@ -155,7 +156,7 @@ Item {
                             TouchText {
                                 Layout.fillWidth: true
                                 visible: controller.preferences.showHints
-                                text: "Rest your fingertip flat. Lift fully between touches. A clean, dry sensor works best."
+                                text: controller.snapshot.scanType === "swipe" ? "Swipe your fingertip steadily across the sensor. Lift fully between swipes. Keep the sensor clean and dry." : controller.snapshot.scanType === "press" ? "Rest your fingertip flat. Lift fully between touches. A clean, dry sensor works best." : "Follow your reader’s scan instructions. Keep your finger and sensor clean and dry."
                                 wrapMode: Text.WordWrap
                                 color: root.faint
                                 font.pixelSize: Style.font.caption
@@ -315,10 +316,10 @@ Item {
                                 Layout.fillHeight: true
                                 spacing: Style.space(12)
                                 TouchText { text: "The reader, at a glance"; font.bold: true }
-                                SystemRow { label: "Machine"; value: controller.snapshot.model || "ThinkPad X1" }
-                                SystemRow { label: "Sensor"; value: controller.snapshot.name || "Goodix MOC" }
-                                SystemRow { label: "USB ID"; value: "27c6:659c" }
-                                SystemRow { label: "Scan method"; value: "Press / match on chip" }
+                                SystemRow { label: "Machine"; value: controller.snapshot.model || "This computer" }
+                                SystemRow { label: "Sensor"; value: controller.snapshot.name || "Not detected" }
+                                SystemRow { label: "Backend"; value: "fprintd / libfprint" }
+                                SystemRow { label: "Scan method"; value: controller.snapshot.scanType === "swipe" ? "Swipe" : controller.snapshot.scanType === "press" ? "Press" : "Unknown" }
                                 SystemRow { label: "Account"; value: controller.snapshot.user || "Current user" }
                                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: root.line }
                                 TouchText { text: "AUTHENTICATION"; font.pixelSize: Style.font.caption; color: root.faint; font.letterSpacing: 1 }
@@ -369,7 +370,7 @@ Item {
                                 }
                                 TouchText {
                                     visible: controller.busy
-                                    text: controller.phase === "authorizing" ? "Approve the system dialog if prompted" : controller.phase === "scanning" ? (controller.action === "enroll" && controller.stages > 0 ? controller.passed + " / " + controller.stages + " touches  ·  " : "") + Math.max(0, controller.limit - controller.elapsed) + "s remaining" : "Finishing…"
+                                    text: controller.phase === "authorizing" ? "Approve the system dialog if prompted" : controller.phase === "scanning" ? (controller.action === "enroll" && controller.stages > 0 ? controller.passed + " / " + controller.stages + " scans  ·  " : "") + Math.max(0, controller.limit - controller.elapsed) + "s remaining" : "Finishing…"
                                     color: root.faint; font.pixelSize: Style.font.caption
                                 }
                             }
@@ -378,7 +379,7 @@ Item {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        TouchText { text: "X1 TOUCH  /  0.1.0"; color: root.faint; font.pixelSize: Style.font.caption * .85; font.letterSpacing: 1 }
+                        TouchText { text: "X1 TOUCH  /  0.2.0"; color: root.faint; font.pixelSize: Style.font.caption * .85; font.letterSpacing: 1 }
                         Item { Layout.fillWidth: true }
                         TouchText { text: "Tab to navigate   ·   Esc to " + (controller.busy ? "cancel" : "close"); color: root.faint; font.pixelSize: Style.font.caption }
                     }

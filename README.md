@@ -1,8 +1,9 @@
 # X1 Touch
 
-A fingerprint studio for Omarchy and the **ThinkPad X1 Carbon Gen 14**, using
-the **Goodix MOC `27c6:659c`** reader. Built as a native Quickshell panel and bar
-widget; it follows the active Omarchy palette, font, spacing and corners.
+A fingerprint studio for **Omarchy with fprintd-compatible readers**. Built as a
+native Quickshell panel and bar widget, it follows the active Omarchy palette,
+font, spacing and corners. Originally developed on a ThinkPad X1; the name and
+plugin ID remain stable for existing installations.
 
 ![X1 Touch on the target ThinkPad](preview.png)
 
@@ -26,15 +27,38 @@ progress line represents elapsed time, not fingerprint quality.
 ## Requirements
 
 - Omarchy 4.x with the Quickshell plugin system (developed on 4.0.4).
-- USB reader `27c6:659c` and fprintd exposing `Goodix MOC Fingerprint Sensor`.
+- One reader exposed by fprintd, with a working driver for its exact hardware ID.
 - Existing working `fprintd` and `libfprint`/`libfprint-git` installation.
 - `/usr/bin/python`, `python-gobject`, GTK/GLib introspection, and `pacman`.
 - Active desktop session with a Polkit authentication agent (Omarchy provides it).
 
 This project uses the existing driver. It does not flash firmware, replace
-libfprint, install an authentication service, or rewrite PAM. It rejects other
-USB models, including the T480's Synaptics reader. If multiple Goodix devices
-are exposed, it refuses to guess which one owns an enrollment.
+libfprint, install an authentication service, or rewrite PAM. Discovery uses
+fprintd rather than a USB/vendor whitelist, so it also accommodates SPI readers
+when exposed by the driver. If multiple readers are exposed, it refuses to guess
+which one owns an enrollment: only one reader at a time is currently supported.
+Older fprintd versions without single-finger deletion report an unsupported
+operation; the plugin never falls back to deleting every enrollment.
+
+## Hardware compatibility
+
+Compatibility depends on the installed libfprint driver, firmware, and fprintd.
+This is not a claim to support every fingerprint reader or every ThinkPad X1.
+The UI displays the detected name and press/swipe scan method; it does not infer
+a USB ID or match-on-chip capability from the laptop model.
+
+| Hardware | Sensor | Validation status |
+| --- | --- | --- |
+| Our X1 Carbon Gen 14 | Goodix `27c6:659c` | Live discovery, listing, scan start, timeout and cancellation checked; successful physical matching/enrollment still pending |
+| Reported X1 Carbon Gen 13 | Goodix `27c6:658c` | Listed upstream; not physically tested with this plugin |
+| Reported X1 Carbon Gen 12 | Synaptics `06cb:0123` | Listed upstream; not physically tested with this plugin |
+| Other fprintd-compatible readers | Driver-dependent | General discovery and press/swipe behavior covered with simulated readers; physical testing required |
+
+Sources: [Gen 13 hardware log](https://github.com/wheaney/breezy-desktop/issues/165),
+[Gen 12 hardware log](https://github.com/fwupd/fwupd/issues/7180), and
+[libfprint supported devices](https://fprint.freedesktop.org/supported-devices.html).
+The upstream list covers the **development version**; distribution releases may
+lag behind it. The hardware reports describe particular units, not every SKU.
 
 ## Install
 
@@ -52,8 +76,13 @@ launcher entry, run this optional command after installation:
 /usr/bin/python ~/.config/omarchy/plugins/io.github.dandiccf.x1-touch/scripts/install.py launcher
 ```
 
+Launcher setup creates files only at absent paths and leaves existing files or
+symlinks alone. Removal deletes only regular files matching the installer’s
+exact generated content and ownership marker. Legacy 0.1.0 launcher files are
+left in place; they still launch the same plugin ID.
+
 Plugin ID: `io.github.dandiccf.x1-touch`. The plugin does not install or replace
-your fingerprint driver. This first release has automated tests and live
+your fingerprint driver. This release has automated tests and live
 hardware timeout/cancellation validation; see [validation status](VALIDATION.md)
 for physical enrollment and matching checks still to be completed.
 
@@ -91,10 +120,10 @@ replaces an existing entry. Removing a finger is permanent and requires a new
 enrollment to restore it. There is no bulk-clear action.
 
 For enrollment, approve the system authorization dialog if it appears, then
-touch and fully lift your finger between stages. The panel displays the actual
+press or swipe as instructed and fully lift your finger between stages. The panel displays the actual
 stage count reported by fprintd. You can cancel at any time. A completed
 enrollment remains saved even if you close the panel immediately afterwards.
-Goodix/fprintd owns incomplete-enrollment cleanup and sensor storage.
+The driver and fprintd own incomplete-enrollment cleanup and sensor storage.
 
 The list covers the current Linux user's registrations known to fprintd. It is
 not an inventory of other users' or Windows Hello's sensor entries.
@@ -123,7 +152,8 @@ fprintd's empty-username convention. Deletion additionally requires
 bash scripts/check.sh
 ```
 
-Tests cover exact USB matching, input validation, configuration persistence,
+Tests cover generic discovery, no/multiple/disconnected readers, swipe feedback,
+launcher ownership and symlinks, input validation, configuration persistence,
 enrollment progress, duplicate-enrollment refusal, confirmation requirements,
 match/failure, timeout, cancellation and reader release. These tests use a fake
 fprintd client and never add or remove fingerprints on real hardware.

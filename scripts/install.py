@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -36,21 +37,68 @@ def wait_for_discovery():
 
 def desktop_entry():
     return ("[Desktop Entry]\nType=Application\nName=X1 Touch\n"
-            "Comment=Manage your ThinkPad X1 fingerprints\n"
+            "Comment=Manage your fingerprints through fprintd\n"
             "Exec=omarchy-shell shell summon io.github.dandiccf.x1-touch {}\n"
             "Icon=x1-touch\nTerminal=false\nCategories=Settings;HardwareSettings;\n"
-            "Keywords=fingerprint;Goodix;ThinkPad;biometric;\n")
+            "X-X1-Touch-Owner=io.github.dandiccf.x1-touch\nKeywords=fingerprint;fprintd;biometric;\n")
+
+
+def launcher_files():
+    # Ownership is exact generated content, including a plugin-specific marker.
+    return ((ICON, b"<!-- Installed by io.github.dandiccf.x1-touch -->\n" + (SOURCE / "icon.svg").read_bytes()),
+            (LAUNCHER, desktop_entry().encode()))
+
+
+def safe_parents(path):
+    return not any(parent.is_symlink() for parent in path.parents)
+
+
+def read_owned(path, content):
+    if not safe_parents(path):
+        return False
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return False
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size != len(content):
+            return False
+        return stream.read() == content
+
+
+def create_launcher_file(path, content):
+    if not safe_parents(path):
+        print(f"Preserved path with symlink parent: {path}")
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    except FileExistsError:
+        if read_owned(path, content):
+            return True
+        print(f"Preserved existing file (not owned by this installer): {path}")
+        return False
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(content)
+    return True
+
+
+def remove_launcher_files(files=None):
+    for path, content in launcher_files() if files is None else files:
+        if read_owned(path, content):
+            path.unlink()
+        elif path.exists() or path.is_symlink():
+            print(f"Preserved existing file (not owned by this installer): {path}")
 
 
 def register_launcher():
-    LAUNCHER.parent.mkdir(parents=True, exist_ok=True)
-    ICON.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(SOURCE / "icon.svg", ICON)
-    LAUNCHER.write_text(desktop_entry())
-    if shutil.which("desktop-file-validate"):
-        run("desktop-file-validate", str(LAUNCHER))
-    if shutil.which("update-desktop-database"):
-        run("update-desktop-database", str(LAUNCHER.parent))
+    outcomes = [create_launcher_file(path, content) for path, content in launcher_files()]
+    if all(outcomes):
+        if shutil.which("desktop-file-validate"):
+            run("desktop-file-validate", str(LAUNCHER))
+        if shutil.which("update-desktop-database"):
+            run("update-desktop-database", str(LAUNCHER.parent))
 
 
 def install():
@@ -93,13 +141,13 @@ def install():
 def uninstall(yes):
     if not yes:
         raise SystemExit("Use uninstall --yes to remove the plugin. Enrollments and preferences are retained.")
+    owned_files = launcher_files()
     run("omarchy", "plugin", "disable", ID)
     if DEST.exists():
         if json.loads((DEST / "manifest.json").read_text()).get("id") != ID:
             raise SystemExit("Unexpected plugin ID; no files removed.")
         shutil.rmtree(DEST)
-    LAUNCHER.unlink(missing_ok=True)
-    ICON.unlink(missing_ok=True)
+    remove_launcher_files(owned_files)
     run("omarchy-shell", "shell", "rescanPlugins")
     print("Removed X1 Touch. Enrolled fingerprints, authentication and preferences are unchanged.")
 

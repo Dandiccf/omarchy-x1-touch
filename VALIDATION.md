@@ -5,10 +5,11 @@ Target: ThinkPad X1 Carbon Gen 14, Omarchy 4.0.4, Goodix MOC USB 27c6:659c.
 ## Completed
 
 - Omarchy manifest validation.
-- 21 Python tests: USB matching, preferences validation and atomic writes, scan
+- 30 Python tests: generic discovery (Goodix, Synaptics, swipe and SPI readers),
+  absent/multiple/disconnected devices, swipe feedback, preferences and atomic writes, scan
   event semantics, startup cancellation race, cleanup after completion/error,
   timeout, per-finger deletion contract, confirmation, asynchronous plugin
-  discovery, launcher identity and installer safeguards.
+  discovery, launcher identity, foreign-file/symlink preservation and installer safeguards.
 - Python syntax checks and QML lint. The check script documents the three
   unavoidable host type-metadata categories excluded from static lint.
 - Read-only live hardware discovery and enrollment listing.
@@ -20,6 +21,13 @@ Target: ThinkPad X1 Carbon Gen 14, Omarchy 4.0.4, Goodix MOC USB 27c6:659c.
 - Installed plugin enabled in Omarchy with bar icon and valid desktop launcher.
 - Visual review at 2880×1800, 2× display scale; native theme and final layout load
   correctly after a shell restart. No plugin-specific runtime errors observed.
+
+## Compatibility limits
+
+Release 0.2.0 removes the hardware whitelist. Non-Goodix, swipe and SPI readers
+have simulated coverage only, not physical validation. Only one reader may be
+exposed by fprintd at a time. Upstream support does not guarantee that an installed
+driver version supports a device. See the README compatibility table.
 
 ## Physical checks still required
 

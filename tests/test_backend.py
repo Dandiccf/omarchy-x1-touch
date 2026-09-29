@@ -5,11 +5,11 @@ import signal
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 import fingerprint as fp
-from model import DEFAULTS, FINGERS, ScanState, detect_sensor, pam_status, validate_settings
+from model import DEFAULTS, FINGERS, ScanState, scan_message, pam_status, validate_settings
 
 
 class FakeBus:
@@ -34,6 +34,7 @@ class FakeClient:
 
     def discover(self):
         self.calls.append("discover")
+        return {"name": "Test reader", "scan-type": "press"}
 
     def fingers(self):
         return self.enrolled
@@ -60,15 +61,46 @@ class FakeClient:
 
 
 class ModelTests(unittest.TestCase):
-    def test_exact_hardware_id(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            for name, vendor, product in [("correct", "27c6", "659c"), ("t480", "06cb", "009a"), ("other", "27c6", "1234")]:
-                p = root / name
-                p.mkdir()
-                (p / "idVendor").write_text(vendor)
-                (p / "idProduct").write_text(product)
-            self.assertEqual(detect_sensor(root), ["correct"])
+    def test_discovery_accepts_driver_supported_readers(self):
+        for name, scan_type in (("Goodix MOC Fingerprint Sensor", "press"),
+                                ("Synaptics Sensors", "press"),
+                                ("UPEK TouchStrip", "swipe"),
+                                ("Elan SPI reader", "press")):
+            with self.subTest(name=name):
+                client = fp.Client.__new__(fp.Client)
+                client.path = None
+                client.call = Mock(return_value=(["/reader/0"],))
+                client.properties = Mock(return_value={"name": name, "scan-type": scan_type})
+                self.assertEqual(client.discover()["name"], name)
+                self.assertEqual(client.path, "/reader/0")
+                client.call.assert_called_once_with("GetDevices", path="/net/reactivated/Fprint/Manager", interface=fp.BUS + ".Manager")
+
+    def test_no_or_multiple_readers_never_select_a_device(self):
+        for paths, message in (([], "No reader"), (["/a", "/b"], "Multiple")):
+            client = fp.Client.__new__(fp.Client)
+            client.path = "/previous"
+            client.call = Mock(return_value=(paths,))
+            client.properties = Mock()
+            with self.assertRaisesRegex(RuntimeError, message):
+                client.discover()
+            self.assertIsNone(client.path)
+            client.properties.assert_not_called()
+
+    def test_disconnected_reader_is_not_selected(self):
+        client = fp.Client.__new__(fp.Client)
+        client.path = "/previous"
+        client.call = Mock(return_value=(["/reader/0"],))
+        client.properties = Mock(side_effect=RuntimeError("Disconnected"))
+        with self.assertRaisesRegex(RuntimeError, "Disconnected"):
+            client.discover()
+        self.assertIsNone(client.path)
+
+    def test_swipe_feedback_matches_scan_method(self):
+        state = ScanState("enroll", 4, "swipe")
+        self.assertIn("Swipe recorded", state.update("enroll-stage-passed", False)["message"])
+        self.assertIn("more slowly", scan_message("verify-too-fast", "swipe"))
+        self.assertIn("full length", scan_message("enroll-swipe-too-short", "swipe"))
+        self.assertIn("still", scan_message("verify-too-fast", "press"))
 
     def test_pam_comment_is_not_configuration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,6 +157,20 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(client.calls[-2:], ["VerifyStop", "Release"])
         self.assertTrue(client.bus.unsubscribed)
+
+    def test_swipe_operation_prompts_for_swipe(self):
+        client = FakeClient([("verify-match", True)])
+        client.discover = Mock(return_value={"scan-type": "swipe"})
+        result, events = self.run_fake(client)
+        self.assertTrue(result)
+        self.assertTrue(any(e.get("message", "").startswith("Swipe your right index finger") for e in events))
+
+    def test_unsupported_single_delete_does_not_bulk_delete(self):
+        client = FakeClient(fail="DeleteEnrolledFinger")
+        with self.assertRaisesRegex(RuntimeError, "Simulated"):
+            self.run_fake(client, "delete")
+        self.assertNotIn("DeleteEnrolledFingers", client.calls)
+        self.assertEqual(client.calls[-1], "Release")
 
     def test_enrollment_reports_real_stages(self):
         client = FakeClient([("enroll-stage-passed", False), ("enroll-stage-passed", False), ("enroll-completed", True)], enrolled=())
