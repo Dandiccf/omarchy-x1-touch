@@ -1,0 +1,19 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install GObject introspection bindings
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y python3-gi gir1.2-glib-2.0
+      - name: Run unit tests without fingerprint hardware
+        run: /usr/bin/python3 -m unittest discover -s tests -v
+      - name: Check Python syntax
+        run: /usr/bin/python3 -m py_compile backend/*.py scripts/*.py

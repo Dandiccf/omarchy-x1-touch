@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.dandiccf.x1-touch",
+  "name": "X1 Touch",
+  "version": "0.1.0",
+  "author": "Dandiccf",
+  "license": "MIT",
+  "description": "Fingerprint studio for the ThinkPad X1 Goodix 27c6:659c sensor. Enroll, test and manage your fingers with live scan feedback.",
+  "kinds": ["panel", "bar-widget"],
+  "entryPoints": {"panel": "Panel.qml", "barWidget": "BarWidget.qml"},
+  "barWidget": {
+    "displayName": "X1 Touch",
+    "description": "Open your fingerprint studio",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
